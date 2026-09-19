@@ -50,6 +50,12 @@ const DENIED = `<!doctype html><meta charset=utf-8><title>kmp-sim</title>
 <p>Ask whoever started the session for the full URL — the one ending in <code>?k=…</code>.</p>`;
 
 const server = http.createServer((req, res) => {
+  if (req.url.startsWith('/__kmp-sim/healthz')) {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ ok: true, target: TARGET_PORT }));
+    return;
+  }
+
   const auth = authorize(req);
   if (!auth) {
     res.writeHead(403, { 'content-type': 'text/html; charset=utf-8' });
