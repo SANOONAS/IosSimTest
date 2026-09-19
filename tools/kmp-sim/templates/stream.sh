@@ -24,30 +24,37 @@ done
 [ "$STREAM_READY" -eq 1 ] || { echo "stream never became ready"; exit 1; }
 echo "stream started"
 
-KMP_SIM_GATE_TOKEN="$KMP_SIM_GATE_TOKEN" \
-KMP_SIM_TARGET_PORT="$STREAM_PORT" \
-KMP_SIM_GATE_PORT="$GATE_PORT" \
-nohup node .github/kmp-sim/gate.cjs > gate.log 2>&1 &
+env KMP_SIM_GATE_TOKEN="$KMP_SIM_GATE_TOKEN" \
+  KMP_SIM_TARGET_PORT="$STREAM_PORT" \
+  KMP_SIM_GATE_PORT="$GATE_PORT" \
+  nohup node .github/kmp-sim/gate.cjs > gate.log 2>&1 &
+GATE_PID=$!
 
-disown 2>/dev/null || true
 for _ in $(seq 1 30); do
   curl -fsS -o /dev/null "http://127.0.0.1:$GATE_PORT/__kmp-sim/healthz" && break
+  kill -0 "$GATE_PID" 2>/dev/null || break
   sleep 1
 done
-curl -fsS "http://127.0.0.1:$GATE_PORT/__kmp-sim/healthz" || { cat gate.log; exit 1; }
+curl -fsS "http://127.0.0.1:$GATE_PORT/__kmp-sim/healthz" || {
+  echo "gate never became ready"
+  cat gate.log 2>/dev/null || true
+  exit 1
+}
 
+touch cloudflared.log
 curl -fsSL -o cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
 chmod +x cloudflared
 nohup ./cloudflared tunnel --no-autoupdate --url "http://127.0.0.1:$GATE_PORT" --logfile cloudflared.log > /dev/null 2>&1 &
-disown 2>/dev/null || true
+CLOUDFLARED_PID=$!
 
 TUNNEL=""
 for _ in $(seq 1 60); do
   TUNNEL=$(grep -Eo 'https://[a-z0-9-]+\.trycloudflare\.com' cloudflared.log | head -1 || true)
   [ -n "$TUNNEL" ] && break
+  kill -0 "$CLOUDFLARED_PID" 2>/dev/null || break
   sleep 2
 done
-[ -n "$TUNNEL" ] || { tail -50 cloudflared.log; exit 1; }
+[ -n "$TUNNEL" ] || { echo "cloudflared never became ready"; tail -50 cloudflared.log; exit 1; }
 
 gh api "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
   -f state=success \
