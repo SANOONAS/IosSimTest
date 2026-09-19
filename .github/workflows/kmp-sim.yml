@@ -1,3 +1,4 @@
+# kmp-sim-template-version: 2
 name: kmp-sim
 run-name: kmp-sim ${{ inputs.session }} · ${{ inputs.minutes }}m
 

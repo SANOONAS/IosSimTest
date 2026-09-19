@@ -1,4 +1,4 @@
-// kmp-sim-template-version: 1
+// kmp-sim-template-version: 2
 /**
  * kmp-sim auth gate.
  *

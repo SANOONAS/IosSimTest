@@ -1,6 +1,6 @@
-import { randomBytes, createHash } from 'node:crypto';
-import { readFileSync, writeFileSync, existsSync } from 'node:fs';
-import { join, dirname } from 'node:path';
+import { randomBytes } from 'node:crypto';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import * as git from '../lib/git.js';
 import * as gh from '../lib/gh.js';
 import { sh, sleep, open as openUrl } from '../lib/proc.js';
@@ -64,15 +64,11 @@ export async function up(cwd, flags) {
 
   step('Dispatching build');
 
-  const fingerprint = calculateFingerprint(cwd);
-
   await gh.dispatch(cwd, WORKFLOW, branch, {
     session,
     gate_token: gateToken,
-    platform: platform,
     minutes: String(flags.minutes ?? 30),
-    fingerprint: fingerprint,
-    runner: platform === 'ios' ? 'macos-14' : 'ubuntu-latest'
+    cache: String(flags.cache !== false)
   });
 
   const run = await waitForRun(cwd, session);
@@ -92,27 +88,6 @@ export async function up(cwd, flags) {
 
   if (flags.open !== false) openUrl(url);
   return url;
-}
-
-function calculateFingerprint(cwd) {
-  const hash = createHash('sha256');
-  // Hash all .gradle.kts and libs.versions.toml files
-  // For simplicity without glob dependency yet, I'll just hash the root and shared ones
-  const files = [
-    'build.gradle.kts',
-    'settings.gradle.kts',
-    'gradle/libs.versions.toml',
-    'app/shared/build.gradle.kts',
-    'app/androidApp/build.gradle.kts'
-  ];
-
-  for (const f of files) {
-    const p = join(cwd, f);
-    if (existsSync(p)) {
-      hash.update(readFileSync(p));
-    }
-  }
-  return hash.digest('hex').substring(0, 16);
 }
 
 async function assertWorkflowIsDispatchable(cwd, repo, branch) {
