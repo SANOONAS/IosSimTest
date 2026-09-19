@@ -4,10 +4,6 @@ run-name: kmp-sim ${{ inputs.session }} · ${{ inputs.platform }} · ${{ inputs.
 
 on:
   workflow_dispatch:
-    on:
-      push:
-        branches:
-          - featIOSBuildAction
     inputs:
       session:
         description: Session id
