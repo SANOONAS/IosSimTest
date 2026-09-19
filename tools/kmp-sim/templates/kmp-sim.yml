@@ -73,11 +73,12 @@ jobs:
           KMP_SIM_GATE_TOKEN: ${{ inputs.gate_token }}
           KMP_SIM_MINUTES: ${{ inputs.minutes }}
         with:
-          api-level: 34
-          target: aosp_atd
+          api-level: 33
+          target: default
           arch: x86_64
           disable-animations: true
           emulator-boot-timeout: 900
+          emulator-options: -no-snapshot-save -no-audio -gpu swiftshader_indirect -noaudio -no-boot-anim
           script: sh .github/kmp-sim/stream.sh
 
       - name: Mark session ended

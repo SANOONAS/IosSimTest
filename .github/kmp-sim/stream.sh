@@ -10,6 +10,10 @@ for _ in $(seq 1 30); do
   [ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1" ] && break
   sleep 2
 done
+adb shell settings put global stay_on_while_plugged_in 3
+adb shell input keyevent KEYCODE_WAKEUP
+adb shell wm dismiss-keyguard
+sleep 3
 adb install -r "$APK"
 adb shell input keyevent 224
 adb shell wm dismiss-keyguard || true
@@ -28,7 +32,11 @@ sleep 5
 adb shell dumpsys window | grep -E 'mCurrentFocus|mFocusedApp' || true
 adb shell dumpsys SurfaceFlinger --display-id 0 | head -20 || true
 
-node -e "const{execSync}=require('child_process');const http=require('http');let frame=Buffer.alloc(0);setInterval(()=>{try{frame=execSync('adb exec-out screencap -p',{maxBuffer:10*1024*1024})}catch(e){}},200);http.createServer((req,res)=>{res.writeHead(200,{'Content-Type':'multipart/x-mixed-replace;boundary=frame','Cache-Control':'no-cache'});const iv=setInterval(()=>{if(frame.length){res.write('--frame\\r\\nContent-Type:image/png\\r\\n\\r\\n');res.write(frame);res.write('\\r\\n')}},200);req.on('close',()=>clearInterval(iv))}).listen(process.env.STREAM_PORT||3200,()=>console.log('stream ready'))" &
+adb exec-out screencap -p > /tmp/test.png && \
+ls -la /tmp/test.png && \
+echo "screencap size: $(wc -c < /tmp/test.png) bytes"
+
+node -e "const{execSync}=require('child_process');const http=require('http');let frame=Buffer.alloc(0);setInterval(()=>{try{const raw=execSync('adb exec-out screencap -p 2>/dev/null',{maxBuffer:10*1024*1024});if(raw.length>4&&raw[0]===0x89&&raw[1]===0x50){frame=raw;}}catch(e){}},200);http.createServer((req,res)=>{res.writeHead(200,{'Content-Type':'multipart/x-mixed-replace;boundary=frame','Cache-Control':'no-cache'});const iv=setInterval(()=>{if(frame.length){res.write('--frame\\r\\nContent-Type:image/png\\r\\n\\r\\n');res.write(frame);res.write('\\r\\n')}},200);req.on('close',()=>clearInterval(iv))}).listen(process.env.STREAM_PORT||3200,()=>console.log('stream ready'))" &
 
 STREAM_READY=0
 for _ in $(seq 1 30); do
