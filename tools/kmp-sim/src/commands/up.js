@@ -103,7 +103,7 @@ function calculateFingerprint(cwd) {
     'settings.gradle.kts',
     'gradle/libs.versions.toml',
     'app/shared/build.gradle.kts',
-    'app/customerApp/build.gradle.kts'
+    'app/androidApp/build.gradle.kts'
   ];
 
   for (const f of files) {

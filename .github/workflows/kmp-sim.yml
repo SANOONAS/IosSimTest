@@ -59,7 +59,7 @@ jobs:
         with:
           path: |
             app/shared/build
-            app/customerApp/build
+            app/androidApp/build
             app/iosApp/build
           key: kmp-sim-build-${{ inputs.platform }}-${{ inputs.fingerprint }}
 
@@ -81,7 +81,7 @@ jobs:
 
       - name: Build Android App
         if: inputs.platform == 'android' && steps.build-cache.outputs.cache-hit != 'true'
-        run: ./gradlew :app:customerApp:assembleDebug
+        run: ./gradlew :app:androidApp:assembleDebug
 
       - name: Save build to cache
         if: steps.build-cache.outputs.cache-hit != 'true'
@@ -89,7 +89,7 @@ jobs:
         with:
           path: |
             app/shared/build
-            app/customerApp/build
+            app/androidApp/build
             app/iosApp/build
           key: kmp-sim-build-${{ inputs.platform }}-${{ inputs.fingerprint }}
 
@@ -138,7 +138,7 @@ jobs:
           target: google_apis
           arch: x86_64
           script: |
-            adb install app/customerApp/build/outputs/apk/debug/app-customerApp-debug.apk
+            adb install app/androidApp/build/outputs/apk/debug/androidApp-debug.apk
             adb shell monkey -p sl.volatio.chilbro 1
             # Mock streaming using a simple MJPEG server or similar
             # In a real tool, we'd use ws-scrcpy or serve-sim equivalent for Android
