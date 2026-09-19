@@ -1,0 +1,165 @@
+# kmp-sim-template-version: 1
+name: kmp-sim
+run-name: kmp-sim ${{ inputs.session }} · ${{ inputs.platform }} · ${{ inputs.minutes }}m
+
+on:
+  workflow_dispatch:
+    on:
+      push:
+        branches:
+          - featIOSBuildAction
+    inputs:
+      session:
+        description: Session id
+        required: true
+      gate_token:
+        description: Shared secret
+        required: true
+      platform:
+        description: ios or android
+        default: "android"
+      minutes:
+        description: How long to hold the stream open
+        default: "30"
+      fingerprint:
+        description: Native build fingerprint
+        default: ""
+      runner:
+        description: Runner label
+        default: "ubuntu-latest"
+
+permissions:
+  contents: read
+  statuses: write
+
+jobs:
+  stream:
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 360
+    env:
+      GH_TOKEN: ${{ github.token }}
+      STATUS_CONTEXT: kmp-sim/${{ inputs.session }}
+      GATE_PORT: "3199"
+      STREAM_PORT: "3200"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: 'gradle'
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Cache build artifacts
+        uses: actions/cache/restore@v4
+        id: build-cache
+        with:
+          path: |
+            app/shared/build
+            app/customerApp/build
+            app/iosApp/build
+          key: kmp-sim-build-${{ inputs.platform }}-${{ inputs.fingerprint }}
+
+      - name: Build Shared (XCFramework)
+        if: inputs.platform == 'ios' && steps.build-cache.outputs.cache-hit != 'true'
+        run: ./gradlew :app:shared:assembleXCFramework
+
+      - name: Build iOS App
+        if: inputs.platform == 'ios' && steps.build-cache.outputs.cache-hit != 'true'
+        run: |
+          xcodebuild \
+            -project app/iosApp/iosApp.xcodeproj \
+            -scheme iosApp \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -derivedDataPath build/ios \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: Build Android App
+        if: inputs.platform == 'android' && steps.build-cache.outputs.cache-hit != 'true'
+        run: ./gradlew :app:customerApp:assembleDebug
+
+      - name: Save build to cache
+        if: steps.build-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            app/shared/build
+            app/customerApp/build
+            app/iosApp/build
+          key: kmp-sim-build-${{ inputs.platform }}-${{ inputs.fingerprint }}
+
+      - name: Start Auth Gate
+        env:
+          KMP_SIM_GATE_TOKEN: ${{ inputs.gate_token }}
+          KMP_SIM_TARGET_PORT: ${{ env.STREAM_PORT }}
+          KMP_SIM_GATE_PORT: ${{ env.GATE_PORT }}
+        run: |
+          nohup node .github/kmp-sim/gate.cjs > gate.log 2>&1 &
+          disown
+
+      - name: Open tunnel and publish URL
+        id: tunnel
+        run: |
+          # Download cloudflared
+          if [[ "${{ runner.os }}" == "macOS" ]]; then
+            curl -fsSL -o cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-arm64
+          else
+            curl -fsSL -o cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
+          fi
+          chmod +x cloudflared
+
+          nohup ./cloudflared tunnel --no-autoupdate --url "http://127.0.0.1:$GATE_PORT" --logfile cloudflared.log > /dev/null 2>&1 &
+          disown
+
+          TUNNEL=""
+          for _ in $(seq 1 60); do
+            TUNNEL=$(grep -Eo 'https://[a-z0-9-]+\.trycloudflare\.com' cloudflared.log | head -1 || true)
+            [ -n "$TUNNEL" ] && break
+            sleep 2
+          done
+          [ -n "$TUNNEL" ] || { echo "cloudflared never reported a URL"; exit 1; }
+
+          gh api "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            -f state=success \
+            -f "context=$STATUS_CONTEXT" \
+            -f "target_url=$TUNNEL" \
+            -f "description=stream live; hold for ${{ inputs.minutes }}m"
+
+      - name: Run Emulator and Stream (Android)
+        if: inputs.platform == 'android'
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 33
+          target: google_apis
+          arch: x86_64
+          script: |
+            adb install app/customerApp/build/outputs/apk/debug/app-customerApp-debug.apk
+            adb shell monkey -p sl.volatio.chilbro 1
+            # Mock streaming using a simple MJPEG server or similar
+            # In a real tool, we'd use ws-scrcpy or serve-sim equivalent for Android
+            # For now, let's just hold the session.
+            sleep $(( ${{ inputs.minutes }} * 60 ))
+
+      - name: Run Simulator and Stream (iOS)
+        if: inputs.platform == 'ios'
+        run: |
+          # Boot simulator, install app, and stream using serve-sim or equivalent
+          # Mock holding for now
+          sleep $(( ${{ inputs.minutes }} * 60 ))
+
+      - name: Mark session ended
+        if: always()
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            -f state=failure \
+            -f "context=$STATUS_CONTEXT" \
+            -f "description=session ended" || true

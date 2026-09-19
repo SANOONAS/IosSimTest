@@ -1,0 +1,16 @@
+{
+  "name": "kmp-sim",
+  "version": "0.1.0",
+  "description": "Push a KMP app to GitHub, build it on a remote runner, and stream the simulator/emulator back to your browser.",
+  "type": "module",
+  "bin": {
+    "kmp-sim": "bin/kmp-sim.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "commander": "^12.0.0"
+  },
+  "license": "MIT"
+}
