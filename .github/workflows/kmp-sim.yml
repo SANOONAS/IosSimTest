@@ -95,58 +95,99 @@ jobs:
             app/iosApp/build
           key: kmp-sim-build-${{ inputs.platform }}-${{ inputs.fingerprint }}
 
-      - name: Start Auth Gate
-        env:
-          KMP_SIM_GATE_TOKEN: ${{ inputs.gate_token }}
-          KMP_SIM_TARGET_PORT: ${{ env.STREAM_PORT }}
-          KMP_SIM_GATE_PORT: ${{ env.GATE_PORT }}
+      - name: Install aapt
+        if: inputs.platform == 'android'
+        run: sudo apt-get install -y aapt
+
+      - name: Enable KVM
+        if: inputs.platform == 'android'
         run: |
-          nohup node .github/kmp-sim/gate.cjs > gate.log 2>&1 &
-          disown
-
-      - name: Open tunnel and publish URL
-        id: tunnel
-        run: |
-          # Download cloudflared
-          if [[ "${{ runner.os }}" == "macOS" ]]; then
-            curl -fsSL -o cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-arm64
-          else
-            curl -fsSL -o cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
-          fi
-          chmod +x cloudflared
-
-          nohup ./cloudflared tunnel --no-autoupdate --url "http://127.0.0.1:$GATE_PORT" --logfile cloudflared.log > /dev/null 2>&1 &
-          disown
-
-          TUNNEL=""
-          for _ in $(seq 1 60); do
-            TUNNEL=$(grep -Eo 'https://[a-z0-9-]+\.trycloudflare\.com' cloudflared.log | head -1 || true)
-            [ -n "$TUNNEL" ] && break
-            sleep 2
-          done
-          [ -n "$TUNNEL" ] || { echo "cloudflared never reported a URL"; exit 1; }
-
-          gh api "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
-            -f state=success \
-            -f "context=$STATUS_CONTEXT" \
-            -f "target_url=$TUNNEL" \
-            -f "description=stream live; hold for ${{ inputs.minutes }}m"
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
 
       - name: Run Emulator and Stream (Android)
         if: inputs.platform == 'android'
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 33
-          target: google_apis
+          api-level: 34
+          target: aosp_atd
           arch: x86_64
+          profile: pixel_6
           disable-animations: true
-          emulator-boot-timeout: 600
+          emulator-boot-timeout: 900
           script: |
-            adb wait-for-device
+            echo "=== Emulator is ready ==="
             adb shell input keyevent 82
-            adb install -r app/androidApp/build/outputs/apk/debug/androidApp-debug.apk || \
-            adb install -r $(find . -name "*.apk" -path "*/androidApp/*" | head -1)
-            adb shell monkey -p sl.volatio.iossimtest -c android.intent.category.LAUNCHER 1
+
+            APK=$(find . -name "*.apk" -path "*/androidApp/*" -path "*/debug/*" | head -1)
+            echo "APK: $APK"
+            adb install -r "$APK"
+
+            PACKAGE=$(aapt dump badging "$APK" | grep package | awk -F"'" '{print $2}')
+            echo "Package: $PACKAGE"
+            adb shell monkey -p "$PACKAGE" -c android.intent.category.LAUNCHER 1
+
+            sleep 3
+
+            # Start MJPEG stream via adb screencap loop
+            node -e "
+              const { exec, execSync } = require('child_process');
+              const http = require('http');
+              let frame = Buffer.alloc(0);
+
+              function captureFrame() {
+                try {
+                  frame = execSync('adb exec-out screencap -p', { maxBuffer: 10*1024*1024 });
+                } catch(e) {}
+              }
+
+              setInterval(captureFrame, 200);
+              captureFrame();
+
+              http.createServer((req, res) => {
+                res.writeHead(200, {
+                  'Content-Type': 'multipart/x-mixed-replace; boundary=frame',
+                  'Cache-Control': 'no-cache',
+                  'Connection': 'keep-alive'
+                });
+                const iv = setInterval(() => {
+                  if (frame.length) {
+                    res.write('--frame\\r\\nContent-Type: image/png\\r\\n\\r\\n');
+                    res.write(frame);
+                    res.write('\\r\\n');
+                  }
+                }, 200);
+                req.on('close', () => clearInterval(iv));
+              }).listen(3200, () => console.log('Stream ready on 3200'));
+            " &
+
+            sleep 5
+            echo "Stream started"
+
+            # Start gate
+            KMP_SIM_GATE_TOKEN="${{ inputs.gate_token }}" \
+            KMP_SIM_TARGET_PORT=3200 \
+            KMP_SIM_GATE_PORT=3199 \
+            node .github/kmp-sim/gate.cjs &
+
+            sleep 2
+
+            # Tunnel
+            curl -fsSL -o cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
+            chmod +x cloudflared
+            ./cloudflared tunnel --no-autoupdate --url http://127.0.0.1:3199 --logfile cloudflared.log &
+
+            sleep 10
+            TUNNEL=$(grep -Eo 'https://[a-z0-9-]+\.trycloudflare\.com' cloudflared.log | head -1)
+            echo "Tunnel: $TUNNEL"
+
+            gh api "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+              -f state=success \
+              -f "context=$STATUS_CONTEXT" \
+              -f "target_url=${TUNNEL}?k=${{ inputs.gate_token }}" \
+              -f "description=Android stream live"
+
             sleep $(( ${{ inputs.minutes }} * 60 ))
 
       - name: Run Simulator and Stream (iOS)
