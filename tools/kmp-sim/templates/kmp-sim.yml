@@ -110,13 +110,8 @@ jobs:
 
             STREAM_READY=0
             for _ in $(seq 1 30); do
-              if curl -fsS --max-time 2 -o /dev/null "http://127.0.0.1:$STREAM_PORT/"; then
-                STREAM_READY=1
-                break
-              else
-                status=$?
-                [ "$status" -eq 28 ] || true
-              fi
+              curl -fsS --max-time 2 -o /dev/null "http://127.0.0.1:$STREAM_PORT/" && STREAM_READY=1
+              [ "$STREAM_READY" -eq 1 ] && break
               sleep 2
             done
             [ "$STREAM_READY" -eq 1 ] || { echo "stream never became ready"; exit 1; }
@@ -155,12 +150,9 @@ jobs:
 
             END=$(( $(date +%s) + ${{ inputs.minutes }} * 60 ))
             while [ "$(date +%s)" -lt "$END" ]; do
-              if curl -fsS --max-time 2 -o /dev/null "http://127.0.0.1:$STREAM_PORT/"; then
-                :
-              else
-                status=$?
-                [ "$status" -eq 28 ] || exit 1
-              fi
+              status=0
+              curl -fsS --max-time 2 -o /dev/null "http://127.0.0.1:$STREAM_PORT/" || status=$?
+              [ "$status" -eq 0 ] || [ "$status" -eq 28 ] || exit 1
               sleep 15
             done
 
