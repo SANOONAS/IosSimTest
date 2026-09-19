@@ -7,8 +7,8 @@ APK=$(find . -type f -name '*-debug.apk' | head -1)
 echo "Installing APK: $APK"
 adb wait-for-device
 adb install -r "$APK"
-adb shell input keyevent 82
-adb shell input keyevent 26 || true
+adb shell input keyevent 224
+adb shell wm dismiss-keyguard || true
 adb shell input swipe 540 1800 540 400 300 || true
 adb shell am force-stop sl.volatio.iossimtest
 adb shell am start -n sl.volatio.iossimtest/.MainActivity
