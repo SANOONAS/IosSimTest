@@ -81,7 +81,9 @@ jobs:
 
       - name: Build Android App
         if: inputs.platform == 'android' && steps.build-cache.outputs.cache-hit != 'true'
-        run: ./gradlew :app:androidApp:assembleDebug
+        run: |
+          chmod +x gradlew
+          ./gradlew :app:androidApp:assembleDebug
 
       - name: Save build to cache
         if: steps.build-cache.outputs.cache-hit != 'true'
@@ -144,7 +146,7 @@ jobs:
             adb shell input keyevent 82
             adb install -r app/androidApp/build/outputs/apk/debug/androidApp-debug.apk || \
             adb install -r $(find . -name "*.apk" -path "*/androidApp/*" | head -1)
-            adb shell monkey -p sl.volatio.chilbro -c android.intent.category.LAUNCHER 1
+            adb shell monkey -p sl.volatio.iossimtest -c android.intent.category.LAUNCHER 1
             sleep $(( ${{ inputs.minutes }} * 60 ))
 
       - name: Run Simulator and Stream (iOS)
