@@ -137,12 +137,14 @@ jobs:
           api-level: 33
           target: google_apis
           arch: x86_64
+          disable-animations: true
+          emulator-boot-timeout: 600
           script: |
-            adb install app/androidApp/build/outputs/apk/debug/androidApp-debug.apk
-            adb shell monkey -p sl.volatio.chilbro 1
-            # Mock streaming using a simple MJPEG server or similar
-            # In a real tool, we'd use ws-scrcpy or serve-sim equivalent for Android
-            # For now, let's just hold the session.
+            adb wait-for-device
+            adb shell input keyevent 82
+            adb install -r app/androidApp/build/outputs/apk/debug/androidApp-debug.apk || \
+            adb install -r $(find . -name "*.apk" -path "*/androidApp/*" | head -1)
+            adb shell monkey -p sl.volatio.chilbro -c android.intent.category.LAUNCHER 1
             sleep $(( ${{ inputs.minutes }} * 60 ))
 
       - name: Run Simulator and Stream (iOS)
