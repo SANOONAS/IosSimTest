@@ -10,6 +10,7 @@ const TEMPLATES = join(__dirname, '..', '..', 'templates');
 
 export const WORKFLOW_PATH = '.github/workflows/kmp-sim.yml';
 export const GATE_PATH = '.github/kmp-sim/gate.cjs';
+export const STREAM_PATH = '.github/kmp-sim/stream.sh';
 
 const VERSION_RE = /kmp-sim-template-version:\s*(\d+)/;
 const versionOf = (text) => Number(text.match(VERSION_RE)?.[1] ?? 0);
@@ -17,7 +18,11 @@ const versionOf = (text) => Number(text.match(VERSION_RE)?.[1] ?? 0);
 export function scaffold(cwd, { force = false } = {}) {
   let changed = false;
 
-  for (const [rel, src] of [[WORKFLOW_PATH, 'kmp-sim.yml'], [GATE_PATH, 'gate.cjs']]) {
+  for (const [rel, src] of [
+    [WORKFLOW_PATH, 'kmp-sim.yml'],
+    [GATE_PATH, 'gate.cjs'],
+    [STREAM_PATH, 'stream.sh'],
+  ]) {
     const dest = join(cwd, rel);
     const templatePath = join(TEMPLATES, src);
 
