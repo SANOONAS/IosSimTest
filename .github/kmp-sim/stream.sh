@@ -13,7 +13,10 @@ done
 adb install -r "$APK"
 adb shell input keyevent 224
 adb shell wm dismiss-keyguard || true
-adb shell input swipe 540 1800 540 400 300 || true
+adb shell svc power stayon true
+adb shell settings put system screen_brightness 255 || true
+adb shell settings put system screen_off_timeout 2147483647 || true
+adb shell input keyevent 3
 adb shell am force-stop sl.volatio.iossimtest
 STARTED=0
 for _ in $(seq 1 10); do
@@ -22,6 +25,8 @@ for _ in $(seq 1 10); do
 done
 [ "$STARTED" -eq 1 ] || { adb logcat -d -t 120 | tail -80; exit 1; }
 sleep 5
+adb shell dumpsys window | grep -E 'mCurrentFocus|mFocusedApp' || true
+adb shell dumpsys SurfaceFlinger --display-id 0 | head -20 || true
 
 node -e "const{execSync}=require('child_process');const http=require('http');let frame=Buffer.alloc(0);setInterval(()=>{try{frame=execSync('adb exec-out screencap -p',{maxBuffer:10*1024*1024})}catch(e){}},200);http.createServer((req,res)=>{res.writeHead(200,{'Content-Type':'multipart/x-mixed-replace;boundary=frame','Cache-Control':'no-cache'});const iv=setInterval(()=>{if(frame.length){res.write('--frame\\r\\nContent-Type:image/png\\r\\n\\r\\n');res.write(frame);res.write('\\r\\n')}},200);req.on('close',()=>clearInterval(iv))}).listen(process.env.STREAM_PORT||3200,()=>console.log('stream ready'))" &
 
