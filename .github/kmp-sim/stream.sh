@@ -5,8 +5,14 @@ set -eu
 APK=$(find . -type f -name '*-debug.apk' | head -1)
 [ -n "$APK" ] || { echo "No debug APK found"; find . -type f -name '*.apk'; exit 1; }
 echo "Installing APK: $APK"
+adb wait-for-device
 adb install -r "$APK"
-adb shell monkey -p sl.volatio.iossimtest -c android.intent.category.LAUNCHER 1
+adb shell input keyevent 82
+adb shell input keyevent 26 || true
+adb shell input swipe 540 1800 540 400 300 || true
+adb shell am force-stop sl.volatio.iossimtest
+adb shell am start -n sl.volatio.iossimtest/.MainActivity
+sleep 5
 
 node -e "const{execSync}=require('child_process');const http=require('http');let frame=Buffer.alloc(0);setInterval(()=>{try{frame=execSync('adb exec-out screencap -p',{maxBuffer:10*1024*1024})}catch(e){}},200);http.createServer((req,res)=>{res.writeHead(200,{'Content-Type':'multipart/x-mixed-replace;boundary=frame','Cache-Control':'no-cache'});const iv=setInterval(()=>{if(frame.length){res.write('--frame\\r\\nContent-Type:image/png\\r\\n\\r\\n');res.write(frame);res.write('\\r\\n')}},200);req.on('close',()=>clearInterval(iv))}).listen(process.env.STREAM_PORT||3200,()=>console.log('stream ready'))" &
 
