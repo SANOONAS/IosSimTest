@@ -76,7 +76,7 @@ jobs:
           disable-animations: true
           emulator-boot-timeout: 900
           script: |
-            set -euo pipefail
+            set -eu
 
             stream_health() {
               set +e
