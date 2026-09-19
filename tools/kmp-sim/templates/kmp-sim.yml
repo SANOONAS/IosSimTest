@@ -78,14 +78,6 @@ jobs:
           script: |
             set -eu
 
-            stream_health() {
-              set +e
-              curl -fsS --max-time 2 -o /dev/null "http://127.0.0.1:$STREAM_PORT/"
-              status=$?
-              set -e
-              [ "$status" -eq 0 ] || [ "$status" -eq 28 ]
-            }
-
             APK=$(find . -type f -name "*-debug.apk" | head -1)
             if [ -z "$APK" ]; then
               echo "No debug APK found"
@@ -116,11 +108,18 @@ jobs:
               }).listen(process.env.STREAM_PORT||3200,()=>console.log('stream ready'));
             " &
 
+            STREAM_READY=0
             for _ in $(seq 1 30); do
-              stream_health && break
+              if curl -fsS --max-time 2 -o /dev/null "http://127.0.0.1:$STREAM_PORT/"; then
+                STREAM_READY=1
+                break
+              else
+                status=$?
+                [ "$status" -eq 28 ] || true
+              fi
               sleep 2
             done
-            stream_health || { echo "stream never became ready"; exit 1; }
+            [ "$STREAM_READY" -eq 1 ] || { echo "stream never became ready"; exit 1; }
             echo "stream started"
 
             KMP_SIM_GATE_TOKEN="${{ inputs.gate_token }}" \
@@ -156,7 +155,12 @@ jobs:
 
             END=$(( $(date +%s) + ${{ inputs.minutes }} * 60 ))
             while [ "$(date +%s)" -lt "$END" ]; do
-              stream_health || exit 1
+              if curl -fsS --max-time 2 -o /dev/null "http://127.0.0.1:$STREAM_PORT/"; then
+                :
+              else
+                status=$?
+                [ "$status" -eq 28 ] || exit 1
+              fi
               sleep 15
             done
 
