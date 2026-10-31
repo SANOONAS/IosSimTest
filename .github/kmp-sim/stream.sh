@@ -76,7 +76,7 @@ done
 gh api "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
   -f state=success \
   -f "context=$STATUS_CONTEXT" \
-  -f "target_url=$TUNNEL" \
+  -f "target_url=$TUNNEL/?k=$KMP_SIM_GATE_TOKEN" \
   -f "description=iOS Simulator live; hold for ${KMP_SIM_MINUTES}m" > /dev/null
 
 END=$(( $(date +%s) + KMP_SIM_MINUTES * 60 ))

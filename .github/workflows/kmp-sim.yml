@@ -1,16 +1,10 @@
 # kmp-sim-template-version: 2
 name: kmp-sim
-run-name: kmp-sim ${{ inputs.session }} · ${{ inputs.minutes }}m
+run-name: 'kmp-sim #${{ github.run_number }} · ${{ inputs.minutes }}m'
 
 on:
   workflow_dispatch:
     inputs:
-      session:
-        description: Session id
-        required: true
-      gate_token:
-        description: Shared secret
-        required: true
       device:
         description: iOS Simulator device name
         default: iPhone 17 Pro
@@ -34,7 +28,7 @@ jobs:
     timeout-minutes: 360
     env:
       GH_TOKEN: ${{ github.token }}
-      STATUS_CONTEXT: kmp-sim/${{ inputs.session }}
+      STATUS_CONTEXT: kmp-sim/${{ github.run_id }}-${{ github.run_attempt }}
       GATE_PORT: "3199"
       STREAM_PORT: "3200"
 
@@ -110,9 +104,16 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             build
 
+      - name: Generate simulator access token
+        id: access
+        run: |
+          TOKEN="$(openssl rand -hex 32)"
+          echo "::add-mask::$TOKEN"
+          echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
+
       - name: Start iOS Simulator stream
         env:
-          KMP_SIM_GATE_TOKEN: ${{ inputs.gate_token }}
+          KMP_SIM_GATE_TOKEN: ${{ steps.access.outputs.token }}
           KMP_SIM_MINUTES: ${{ inputs.minutes }}
           SIMULATOR_UDID: ${{ steps.simulator.outputs.udid }}
         run: bash .github/kmp-sim/stream.sh

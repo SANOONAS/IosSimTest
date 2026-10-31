@@ -34,7 +34,7 @@ Use the run configurations provided by the run widget in your IDE's toolbar. You
 
 ### GitHub iOS Simulator
 
-The `kmp-sim` GitHub Actions workflow builds the KMP iOS app on a macOS runner and streams an interactive iOS Simulator to a browser. Start it from **Actions → kmp-sim → Run workflow**, providing a unique session ID and a randomly generated gate token. Open the simulator URL published as a commit status and append `?k=<gate_token>` to the URL to authenticate. The default simulator is iPhone 17 Pro; you can select another installed iOS Simulator and set the stream duration in the workflow inputs.
+The `kmp-sim` GitHub Actions workflow builds the KMP iOS app on a macOS runner and streams an interactive iOS Simulator to a browser. Start it from **Actions → kmp-sim → Run workflow**; the workflow generates a unique session and random access token automatically. Open the simulator URL published as a commit status to authenticate. The default simulator is iPhone 17 Pro; you can select another installed iOS Simulator and set the stream duration in the workflow inputs.
 
 Treat the gate token as a password: anyone with it can view and control the simulator. Stop the workflow when you are finished.
 
