@@ -23,6 +23,7 @@ npx --yes @expo/serve-sim \
   --codec mjpeg \
   --mjpeg-fps 20 \
   --max-dimension 900 \
+  --allow-any-host-when-insecure \
   --port "$STREAM_PORT" \
   "$SIMULATOR_UDID" > serve-sim.log 2>&1 &
 SERVE_SIM_PID=$!
