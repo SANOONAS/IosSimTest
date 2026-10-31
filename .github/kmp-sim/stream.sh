@@ -59,9 +59,10 @@ curl -fsS "http://127.0.0.1:$GATE_PORT/__kmp-sim/healthz" || {
 }
 
 touch cloudflared.log
-curl -fsSL -o cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-arm64
-chmod +x cloudflared
-nohup ./cloudflared tunnel --no-autoupdate --url "http://127.0.0.1:$GATE_PORT" --logfile cloudflared.log > /dev/null 2>&1 &
+curl -fsSL -o "$RUNNER_TEMP/cloudflared.tgz" https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-arm64.tgz
+tar -xzf "$RUNNER_TEMP/cloudflared.tgz" -C "$RUNNER_TEMP" cloudflared
+chmod +x "$RUNNER_TEMP/cloudflared"
+nohup "$RUNNER_TEMP/cloudflared" tunnel --no-autoupdate --url "http://127.0.0.1:$GATE_PORT" --logfile cloudflared.log > /dev/null 2>&1 &
 CLOUDFLARED_PID=$!
 
 TUNNEL=""
