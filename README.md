@@ -32,6 +32,12 @@ Use the run configurations provided by the run widget in your IDE's toolbar. You
   - JS target (slower, supports older browsers): `./gradlew :app:webApp:jsBrowserDevelopmentRun`
 - iOS app: open the [/app/iosApp](./app/iosApp) directory in Xcode and run it from there.
 
+### GitHub iOS Simulator
+
+The `kmp-sim` GitHub Actions workflow builds the KMP iOS app on a macOS runner and streams an interactive iOS Simulator to a browser. Start it from **Actions → kmp-sim → Run workflow**, providing a unique session ID and a randomly generated gate token. Open the simulator URL published as a commit status and append `?k=<gate_token>` to the URL to authenticate. The default simulator is iPhone 17 Pro; you can select another installed iOS Simulator and set the stream duration in the workflow inputs.
+
+Treat the gate token as a password: anyone with it can view and control the simulator. Stop the workflow when you are finished.
+
 ### Running tests
 
 Use the run button in your IDE's editor gutter, or run tests using Gradle tasks:

@@ -1,56 +1,45 @@
-#!/bin/sh
+#!/bin/bash
 # kmp-sim-template-version: 2
-set -eu
+set -euo pipefail
 
-APK=$(find . -type f -name '*-debug.apk' | head -1)
-[ -n "$APK" ] || { echo "No debug APK found"; find . -type f -name '*.apk'; exit 1; }
-echo "Installing APK: $APK"
-adb wait-for-device
-for _ in $(seq 1 30); do
-  [ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1" ] && break
-  sleep 2
-done
-adb shell settings put global stay_on_while_plugged_in 3
-adb shell input keyevent KEYCODE_WAKEUP
-adb shell wm dismiss-keyguard
-sleep 3
-adb install -r "$APK"
-adb shell input keyevent 224
-adb shell wm dismiss-keyguard || true
-adb shell svc power stayon true
-adb shell settings put system screen_brightness 255 || true
-adb shell settings put system screen_off_timeout 2147483647 || true
-adb shell input keyevent 3
-adb shell am force-stop sl.volatio.iossimtest
-STARTED=0
-for _ in $(seq 1 10); do
-  adb shell am start -W -n sl.volatio.iossimtest/.MainActivity && STARTED=1 && break
-  sleep 2
-done
-[ "$STARTED" -eq 1 ] || { adb logcat -d -t 120 | tail -80; exit 1; }
-sleep 5
-adb shell dumpsys window | grep -E 'mCurrentFocus|mFocusedApp' || true
-adb shell dumpsys SurfaceFlinger --display-id 0 | head -20 || true
+PRODUCTS_DIR="$RUNNER_TEMP/DerivedData/Build/Products/Debug-iphonesimulator"
+APP_PATH="$(find "$PRODUCTS_DIR" -maxdepth 1 -type d -name '*.app' -print -quit)"
+[ -n "$APP_PATH" ] || { echo "No built iOS app found in $PRODUCTS_DIR"; exit 1; }
+[ -n "${SIMULATOR_UDID:-}" ] || { echo "SIMULATOR_UDID is required"; exit 1; }
+[ -n "${KMP_SIM_GATE_TOKEN:-}" ] || { echo "KMP_SIM_GATE_TOKEN is required"; exit 1; }
+[ "${KMP_SIM_MINUTES:-}" -gt 0 ] 2>/dev/null && [ "$KMP_SIM_MINUTES" -le 350 ] || {
+  echo "KMP_SIM_MINUTES must be a number from 1 to 350"
+  exit 1
+}
 
-adb exec-out screencap -p > /tmp/test.png && \
-ls -la /tmp/test.png && \
-echo "screencap size: $(wc -c < /tmp/test.png) bytes"
+BUNDLE_ID="$(sed -n 's/^PRODUCT_BUNDLE_IDENTIFIER=//p' app/iosApp/Configuration/Config.xcconfig | head -1)"
+BUNDLE_ID="${BUNDLE_ID%%\$*}"
+[ -n "$BUNDLE_ID" ] || { echo "Could not read the iOS bundle identifier"; exit 1; }
 
-node -e "const{execSync}=require('child_process');const http=require('http');let frame=Buffer.alloc(0);setInterval(()=>{try{const raw=execSync('adb exec-out screencap -p 2>/dev/null',{maxBuffer:10*1024*1024});if(raw.length>4&&raw[0]===0x89&&raw[1]===0x50){frame=raw;}}catch(e){}},200);http.createServer((req,res)=>{res.writeHead(200,{'Content-Type':'multipart/x-mixed-replace;boundary=frame','Cache-Control':'no-cache'});const iv=setInterval(()=>{if(frame.length){res.write('--frame\\r\\nContent-Type:image/png\\r\\n\\r\\n');res.write(frame);res.write('\\r\\n')}},200);req.on('close',()=>clearInterval(iv))}).listen(process.env.STREAM_PORT||3200,()=>console.log('stream ready'))" &
+xcrun simctl install "$SIMULATOR_UDID" "$APP_PATH"
+xcrun simctl launch "$SIMULATOR_UDID" "$BUNDLE_ID"
+
+npx --yes @expo/serve-sim \
+  --codec mjpeg \
+  --mjpeg-fps 20 \
+  --max-dimension 900 \
+  --port "$STREAM_PORT" \
+  "$SIMULATOR_UDID" > serve-sim.log 2>&1 &
+SERVE_SIM_PID=$!
 
 STREAM_READY=0
-for _ in $(seq 1 30); do
-  if curl -fsS --max-time 2 -o /dev/null "http://127.0.0.1:$STREAM_PORT/"; then
+for _ in $(seq 1 60); do
+  if curl -fsS --max-time 2 -o /dev/null "http://127.0.0.1:$STREAM_PORT/readyz"; then
     STREAM_READY=1
     break
-  else
-    status=$?
-    [ "$status" -eq 28 ] && STREAM_READY=1 && break
+  fi
+  if ! kill -0 "$SERVE_SIM_PID" 2>/dev/null; then
+    break
   fi
   sleep 2
 done
-[ "$STREAM_READY" -eq 1 ] || { echo "stream never became ready"; exit 1; }
-echo "stream started"
+[ "$STREAM_READY" -eq 1 ] || { echo "iOS simulator stream never became ready"; cat serve-sim.log; exit 1; }
+echo "iOS simulator stream started"
 
 env KMP_SIM_GATE_TOKEN="$KMP_SIM_GATE_TOKEN" \
   KMP_SIM_TARGET_PORT="$STREAM_PORT" \
@@ -70,7 +59,7 @@ curl -fsS "http://127.0.0.1:$GATE_PORT/__kmp-sim/healthz" || {
 }
 
 touch cloudflared.log
-curl -fsSL -o cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
+curl -fsSL -o cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-arm64
 chmod +x cloudflared
 nohup ./cloudflared tunnel --no-autoupdate --url "http://127.0.0.1:$GATE_PORT" --logfile cloudflared.log > /dev/null 2>&1 &
 CLOUDFLARED_PID=$!
@@ -88,12 +77,10 @@ gh api "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
   -f state=success \
   -f "context=$STATUS_CONTEXT" \
   -f "target_url=$TUNNEL" \
-  -f "description=Android stream live; hold for ${KMP_SIM_MINUTES}m"
+  -f "description=iOS Simulator live; hold for ${KMP_SIM_MINUTES}m" > /dev/null
 
 END=$(( $(date +%s) + KMP_SIM_MINUTES * 60 ))
 while [ "$(date +%s)" -lt "$END" ]; do
-  status=0
-  curl -fsS --max-time 2 -o /dev/null "http://127.0.0.1:$STREAM_PORT/" || status=$?
-  [ "$status" -eq 0 ] || [ "$status" -eq 28 ] || exit 1
+  curl -fsS --max-time 10 -o /dev/null "http://127.0.0.1:$STREAM_PORT/healthz"
   sleep 15
 done

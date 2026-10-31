@@ -11,9 +11,14 @@ on:
       gate_token:
         description: Shared secret
         required: true
+      device:
+        description: iOS Simulator device name
+        default: iPhone 17 Pro
+        type: string
       minutes:
         description: How long to hold the stream open
         default: "30"
+        type: string
       cache:
         description: Use the Gradle cache
         default: true
@@ -25,7 +30,7 @@ permissions:
 
 jobs:
   stream:
-    runs-on: ubuntu-latest
+    runs-on: macos-26
     timeout-minutes: 360
     env:
       GH_TOKEN: ${{ github.token }}
@@ -39,19 +44,13 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
-      - name: Enable KVM
-        run: |
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-          sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm
-
-      - name: Setup Java 17
+      - name: Setup Java
         uses: actions/setup-java@v4
         with:
-          java-version: '17'
-          distribution: 'temurin'
+          distribution: temurin
+          java-version: "17"
 
       - name: Gradle cache
         if: inputs.cache
@@ -60,26 +59,63 @@ jobs:
           path: |
             ~/.gradle/caches
             ~/.gradle/wrapper
+            ~/.konan
           key: kmp-sim-${{ runner.os }}-${{ hashFiles('**/*.gradle.kts', '**/libs.versions.toml') }}
 
-      - name: Build Android App
+      - name: Select and boot iOS Simulator
+        id: simulator
+        env:
+          DEVICE_NAME: ${{ inputs.device }}
+        run: |
+          DEVICE_UDID="$(xcrun simctl list devices available --json | python3 -c '
+          import json, os, sys
+          name = os.environ["DEVICE_NAME"]
+          devices = json.load(sys.stdin)["devices"]
+          available = [device for runtime in devices.values() for device in runtime if device["isAvailable"]]
+          matches = [device for device in available if device["name"] == name]
+          if not matches:
+              print(f"No available iOS Simulator named {name!r}", file=sys.stderr)
+              print("Available iPhone simulators:", file=sys.stderr)
+              for device in available:
+                  if device["name"].startswith("iPhone"):
+                      print("  " + device["name"], file=sys.stderr)
+              sys.exit(1)
+          print(matches[0]["udid"])
+          ')"
+          echo "udid=$DEVICE_UDID" >> "$GITHUB_OUTPUT"
+          DEVICE_STATE="$(xcrun simctl list devices available --json | python3 -c '
+          import json, sys
+          udid = sys.argv[1]
+          devices = json.load(sys.stdin)["devices"]
+          print(next(device["state"] for runtime in devices.values() for device in runtime if device["udid"] == udid))
+          ' "$DEVICE_UDID")"
+          if [ "$DEVICE_STATE" != "Booted" ]; then
+            xcrun simctl boot "$DEVICE_UDID"
+          fi
+          xcrun simctl bootstatus "$DEVICE_UDID" -b
+          open -a Simulator --args -CurrentDeviceUDID "$DEVICE_UDID"
+
+      - name: Build iOS app
+        env:
+          SIMULATOR_UDID: ${{ steps.simulator.outputs.udid }}
         run: |
           chmod +x gradlew
-          ./gradlew :app:androidApp:assembleDebug
+          xcodebuild \
+            -project app/iosApp/iosApp.xcodeproj \
+            -target iosApp \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_UDID" \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            build
 
-      - name: Start Android stream
-        uses: reactivecircus/android-emulator-runner@v2
+      - name: Start iOS Simulator stream
         env:
           KMP_SIM_GATE_TOKEN: ${{ inputs.gate_token }}
           KMP_SIM_MINUTES: ${{ inputs.minutes }}
-        with:
-          api-level: 33
-          target: default
-          arch: x86_64
-          disable-animations: true
-          emulator-boot-timeout: 900
-          emulator-options: -no-snapshot-save -no-audio -gpu swiftshader_indirect -noaudio -no-boot-anim
-          script: sh .github/kmp-sim/stream.sh
+          SIMULATOR_UDID: ${{ steps.simulator.outputs.udid }}
+        run: bash .github/kmp-sim/stream.sh
 
       - name: Mark session ended
         if: always()
